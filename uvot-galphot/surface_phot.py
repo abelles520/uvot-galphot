@@ -46,7 +46,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
     offset_file : boolean (default=False)
         if True, the file label+'sk_off.fits' is used to show what offsets (in
-        counts) have already been applied to the counts images
+        counts) have already been added to the counts images
 
     verbose : boolean (default=False)
         if True, print progress
@@ -63,7 +63,12 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # if mask file is provided, make a mask image
         if mask_file is not None:
             mask_image = make_mask_image(hdu_counts[1], mask_file)
-        
+
+        # if offset file is set, save it into an array
+        if offset_file == True:
+            with fits.open(label+'sk_off.fits') as hdu_off:
+                counts_off_array = hdu_off[1].data
+
         # WCS for the images
         wcs_counts = wcs.WCS(hdu_counts[1].header)
         arcsec_per_pix = wcs_counts.wcs.cdelt[1] * 3600
@@ -76,11 +81,112 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         annulus_array = np.arange(0, major_diam*1.2, ann_width)# * u.arcsec 
 
 
+        
+        # -------------------------
+        # sky background
+        # -------------------------
+
+        # size of sky annulus
+        sky_in = annulus_array[-1]
+        sky_ann_width = ann_width * 10
+        sky_out = sky_in + sky_ann_width
+        
+        # define aperture object
+        aperture = EllipticalAnnulus(tuple(ellipse_center[0]),
+                                         a_in=sky_in/arcsec_per_pix,
+                                         a_out=sky_out/arcsec_per_pix,
+                                         b_out=sky_out/arcsec_per_pix * minor_diam/major_diam,
+                                         theta=(90+pos_angle)*np.pi/180)
+        # make an ApertureMask object with the aperture
+        annulus_mask = aperture.to_mask(method='exact')
+        # turn aperture into an image
+        annulus_im = annulus_mask[0].to_image(hdu_counts[1].data.shape)
+
+        # make masked version using input ds9 file
+        if mask_file is not None:
+            annulus_im = annulus_im * mask_image
+
+        # plot things
+        #annulus_data = annulus_mask[0].multiply(hdu_counts[1].data)
+        #plt.imshow(annulus_mask[0])
+        #plt.imshow(annulus_data, origin='lower')
+        #plt.imshow(annulus_im, origin='lower')
+        #plt.colorbar()
+
+        # list of values within aperture
+        nonzero_annulus = np.where(annulus_im > 1e-5)
+        annulus_list = annulus_im[nonzero_annulus]
+        counts_list = hdu_counts[1].data[nonzero_annulus]
+        exp_list = hdu_ex[1].data[nonzero_annulus]
+        if offset_file == True:
+            counts_off_list = counts_off_array[nonzero_annulus]
+
+        # calculate background
+        if offset_file == True:
+            sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
+        else:
+            sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
+        
+
+        # -------------------------
+        # sky background variation
+        # -------------------------
+
+        # define theta around the sky annulus
+        delta_x = nonzero_annulus[1] - ellipse_center[0][0]
+        delta_y = nonzero_annulus[0] - ellipse_center[0][1]
+        theta = np.arccos(delta_x/np.sqrt(delta_x**2 + delta_y**2))
+        # go from 0->2pi instead of 0->pi and pi->0 (yay arccos?)
+        theta[delta_y < 0] = np.pi + (np.pi - theta[delta_y < 0])
+        # convert to degrees
+        theta_deg = theta * 180/np.pi
+        # shift starting point to match position angle of galaxy
+        theta_deg = (theta_deg + (90-pos_angle)) % 360
+        #pdb.set_trace()
+
+        # increments of theta for 8 equal-area segments
+        delta_theta = np.arctan(minor_diam/major_diam) * 180/np.pi
+        delta_list = [delta_theta, 90-delta_theta, 90-delta_theta, delta_theta,
+                          delta_theta, 90-delta_theta, 90-delta_theta, delta_theta]
+        theta_start = 0
+
+        # array to save results
+        seg_phot = np.zeros(len(delta_list))
+        seg_phot_err = np.zeros(len(delta_list))
+        
+        
+        for i in range(len(delta_list)):
+            # indices of the current segment
+            seg = np.where((theta_deg >= theta_start) & (theta_deg < theta_start+delta_list[i]))
+            ind = (nonzero_annulus[0][seg[0]], nonzero_annulus[1][seg[0]])
+            # list of values within segment
+            annulus_list = annulus_im[ind]
+            counts_list = hdu_counts[1].data[ind]
+            exp_list = hdu_ex[1].data[ind]
+            if offset_file == True:
+                counts_off_list = counts_off_array[ind]
+            # do photometry
+            if offset_file == True:
+                temp = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
+            else:
+                temp = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
+            # save it
+            seg_phot[i] = temp['count_rate_per_pix']
+            seg_phot_err[i] = temp['count_rate_err_per_pix']
+            # next segment
+            theta_start += delta_list[i]
+
+        
+
+        pdb.set_trace()
+
+        # -------------------------
+        # photometry for each aperture
+        # -------------------------
+
         # initialize a table (or, rather, the rows... turn into table later)
         table_rows = []
-        
-        
-        # go through each aperture
+
         #for i in range(len(annulus_array)-1):
         for i in [30]:
             
@@ -90,7 +196,6 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                                              a_out=annulus_array[i+1]/arcsec_per_pix,
                                              b_out=annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam,
                                              theta=(90+pos_angle)*np.pi/180)
-
             # make an ApertureMask object with the aperture
             annulus_mask = aperture.to_mask(method='exact')
             # turn aperture into an image
@@ -114,13 +219,12 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             tot_pix_mask = np.sum(annulus_im)
 
             # list of values within aperture
-            nonzero_annulus = np.where(annulus_im > 0)
+            nonzero_annulus = np.where(annulus_im > 1e-5)
             annulus_list = annulus_im[nonzero_annulus]
             counts_list = hdu_counts[1].data[nonzero_annulus]
             exp_list = hdu_ex[1].data[nonzero_annulus]
             if offset_file == True:
-                with fits.open(label+'sk_off.fits') as hdu_off:
-                    counts_off_list = hdu_off[1].data[nonzero_annulus]
+                counts_off_list = counts_off_array[nonzero_annulus]
             pdb.set_trace()
             
             # do some photometry
@@ -180,3 +284,75 @@ def make_mask_image(hdu, mask_file):
 
     # return final image
     return mask_image
+
+
+
+def do_phot(annulus_list, counts_list, exp_list,
+                offset_list=None, sig_clip=None):
+    """
+    Do photometry!  Given counts/exposure time for a list of pixels (and
+    partial pixels), calculate total counts, count rate, and uncertainties.
+    If this is for a sky estimate, sigma clipping might be useful.
+
+    Parameters
+    ----------
+    annulus_list : array
+        covering fraction of each pixel (between 0 and 1)
+
+    counts_list : array
+        counts in each pixel (not accounting for covering fraction)
+
+    exp_list : array
+        exposure time in each pixel (seconds)
+
+    offset_list : array (default=None)
+        the offset (in counts) already applied to the counts image
+
+    sig_clip : float (default=None)
+        if set, apply a N iterations of sigma clipping to count rate values
+        (useful for estimating sky background)
+
+    Returns
+    -------
+    phot : dictionary
+        results of the photometry
+        keys are 'count_rate', 'count_rate_err'
+
+    """
+
+    # start with poisson errors for counts
+    # - if there was an offset already, incorporate that into counts error
+    if offset_list is not None:
+        orig_err = np.sqrt(counts_list - offset_list)
+        err_from_offset = np.sqrt(np.abs(offset_list))
+        counts_err = np.sqrt( orig_err**2 + err_from_offset**2 )
+    # - otherwise just do poisson
+    else:
+        counts_err = np.sqrt(counts_list)
+
+    # multiply counts and counts_err by covering fraction
+    counts = counts_list * annulus_list
+    counts_err *= annulus_list
+
+    # count rate
+    count_rate = counts / exp_list
+    count_rate_err = counts_err / exp_list
+
+    # do sigma clipping, if chosen
+    if sig_clip is not None:
+        pix_clip = sigma_clip(count_rate, sigma=3, iters=sig_clip)
+        count_rate = count_rate[~pix_clip.mask]
+        count_rate_err = count_rate_err[~pix_clip.mask]
+
+    # total count rate
+    tot_count_rate = np.sum(count_rate)
+    tot_count_rate_err = np.sqrt(np.sum( count_rate_err**2 ))
+
+    # total count rate per pixel
+    tot_count_rate_per_pix = tot_count_rate/len(count_rate)
+    tot_count_rate_per_pix_err = tot_count_rate_err/len(count_rate)
+
+
+    # return results
+    return {'count_rate_per_pix':tot_count_rate_per_pix,
+                'count_rate_err_per_pix':tot_count_rate_per_pix_err}
