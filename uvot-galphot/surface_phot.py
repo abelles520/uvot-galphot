@@ -6,6 +6,7 @@ from astropy.io import fits
 from astropy import units as u
 from astropy import wcs
 from astropy.coordinates import SkyCoord
+from astropy.table import Table
 from astropy.stats import biweight_location, sigma_clip
 from regions import read_ds9
 
@@ -190,16 +191,19 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         cols = ['radius','count_rate','count_rate_err',
                     'count_rate_err_poisson','count_rate_err_bg',
                     'mu','mu_err','n_pix']
-        units = ['arcsec','counts/sec','counts/sec',
-                     'counts/sec','counts/sec',
-                     'mag/arcsec2','mag/arcsec2','']
-        phot_table = {key:np.zeros(len(annulus_array)-1) for key in cols}
+        units = ['arcsec','cts/sec','cts/sec',
+                     'cts/sec','cts/sec',
+                     'ABmag/arcsec2','ABmag/arcsec2','']
+        dtypes = ['f8','f8','f8',
+                      'f8','f8',
+                      'f8','f8','f8']
+        phot_dict = {key:np.zeros(len(annulus_array)-1) for key in cols}
 
-        #for i in range(len(annulus_array)-1):
-        for i in [30]:
+        for i in range(len(annulus_array)-1):
+        #for i in range(0,5):
 
             # save radius
-            phot_table['radius'][i] = annulus_array[i+1]
+            phot_dict['radius'][i] = annulus_array[i+1]
 
             # define aperture object
             aperture = EllipticalAnnulus(tuple(ellipse_center[0]),
@@ -218,7 +222,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             area_in = np.pi * annulus_array[i]/arcsec_per_pix * annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam * (annulus_array[i]/annulus_array[i+1])
             tot_pix = area_out - area_in
             tot_arcsec2 = tot_pix * arcsec_per_pix**2
-            phot_table['n_pix'][i] = tot_pix
+            phot_dict['n_pix'][i] = tot_pix
             
             # make masked version using input ds9 file
             if mask_file is not None:
@@ -261,10 +265,10 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             ann_phot_pois_err = ann_phot_per_pix_pois_err * tot_pix
             ann_phot_bg_err = ann_phot_per_pix_bg_err * tot_pix
 
-            phot_table['count_rate'][i] = ann_phot
-            phot_table['count_rate_err'][i] = ann_phot_err
-            phot_table['count_rate_err_poisson'][i] = ann_phot_pois_err
-            phot_table['count_rate_err_bg'][i] = ann_phot_bg_err
+            phot_dict['count_rate'][i] = ann_phot
+            phot_dict['count_rate_err'][i] = ann_phot_err
+            phot_dict['count_rate_err_poisson'][i] = ann_phot_pois_err
+            phot_dict['count_rate_err_bg'][i] = ann_phot_bg_err
 
             # convert to surface brightness
             # - counts/sec/arcsec2
@@ -275,15 +279,27 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             mag_arcsec2_err = np.sqrt( ( 2.5/np.log(10) * ann_phot_arcsec2_err/ann_phot_arcsec2 )**2 +
                                            zeropoint_err**2 )
 
-            phot_table['mu'][i] = mag_arcsec2
-            phot_table['mu_err'][i] = mag_arcsec2_err
+            phot_dict['mu'][i] = mag_arcsec2
+            phot_dict['mu_err'][i] = mag_arcsec2_err
 
             
-            [print(k+': ', phot_table[k][i]) for k in cols]
+            #[print(k+': ', phot_dict[k][i]) for k in cols]
+            #pdb.set_trace()
+
+        # duplicate columns with units in name
+        new_phot_dict = {key+'('+units[k]+')':phot_dict[key] for k,key in enumerate(cols)}
+        new_cols = [key+'('+units[k]+')' for k,key in enumerate(cols)]
             
-            pdb.set_trace()
+        # make astropy table
+        phot_table = Table(new_phot_dict, names=tuple(new_cols), dtype=tuple(dtypes))
 
-
+        # write it out
+        phot_table.write(label+'phot_profile.dat', format='ascii.fixed_width', overwrite=True)
+        
+        # return various useful into
+        return {'phot_table':phot_table, 'sky_phot':sky_phot,
+                    'sky_seg_phot':sky_seg_phot, 'sky_seg_phot_err':sky_seg_phot_err}
+                    
 
 
 def make_mask_image(hdu, mask_file):
