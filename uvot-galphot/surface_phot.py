@@ -13,7 +13,8 @@ import pdb
 
 
 def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle,
-                     ann_width, zeropoint, mask_file=None, offset_file=False,
+                     ann_width, zeropoint, zeropoint_err=0.0,
+                     mask_file=None, offset_file=False,
                      verbose=False):
     """
     Do surface brightness photometry within annuli
@@ -40,6 +41,9 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
     zeropoint : float
         conversion from counts/sec into magnitude units
         AB_mag = -2.5*log10(counts/sec) + zeropoint
+
+    zeropoint_err : float (default=0)
+        uncertainty for the zeropoint
 
     mask_file : string (default=None)
         path+name of ds9 region file with masks
@@ -246,25 +250,36 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             ann_phot_per_pix_err = np.sqrt(ann_temp['count_rate_err_per_pix']**2 +
                                             sky_phot['count_rate_err_per_pix']**2 +
                                             np.std(sky_seg_phot)**2 )
+            ann_phot_per_pix_pois_err = ann_temp['count_rate_pois_err_per_pix']
+            ann_phot_per_pix_bg_err = np.sqrt(ann_temp['count_rate_off_err_per_pix']**2 +
+                                                sky_phot['count_rate_err_per_pix']**2 +
+                                                np.std(sky_seg_phot)**2 )
 
             # multiply by the number of pixels in the annulus to get the total count rate
             ann_phot = ann_phot_per_pix * tot_pix
             ann_phot_err = ann_phot_per_pix_err * tot_pix
+            ann_phot_pois_err = ann_phot_per_pix_pois_err * tot_pix
+            ann_phot_bg_err = ann_phot_per_pix_bg_err * tot_pix
 
             phot_table['count_rate'][i] = ann_phot
             phot_table['count_rate_err'][i] = ann_phot_err
+            phot_table['count_rate_err_poisson'][i] = ann_phot_pois_err
+            phot_table['count_rate_err_bg'][i] = ann_phot_bg_err
 
             # convert to surface brightness
-            mag = -2.5 * np.log10(ann_phot) + zeropoint
-            mag_err = 2.5/np.log(10) * ann_phot_err/ann_phot
+            # - counts/sec/arcsec2
+            ann_phot_arcsec2 = ann_phot / tot_arcsec2
+            ann_phot_arcsec2_err = ann_phot_err / tot_arcsec2
+            # - mag/arcsec2
+            mag_arcsec2 = -2.5 * np.log10(ann_phot_arcsec2) + zeropoint
+            mag_arcsec2_err = np.sqrt( ( 2.5/np.log(10) * ann_phot_arcsec2_err/ann_phot_arcsec2 )**2 +
+                                           zeropoint_err**2 )
 
-            phot_table['mu'][i] = mag/tot_arcsec2
-            phot_table['mu_err'][i] = mag_err/tot_arcsec2
-            
-            
-            # save results
-            #cols = ['count_rate_err_poisson','count_rate_err_bg']
+            phot_table['mu'][i] = mag_arcsec2
+            phot_table['mu_err'][i] = mag_arcsec2_err
 
+            
+            [print(k+': ', phot_table[k][i]) for k in cols]
             
             pdb.set_trace()
 
