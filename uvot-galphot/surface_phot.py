@@ -77,7 +77,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         #ellipse_center = SkyCoord(ra=center_ra*u.deg, dec=center_dec*u.deg)
         ellipse_center = wcs_counts.wcs_world2pix([[center_ra,center_dec]], 0)
         
-        # array of annuli
+        # array of annuli over which to do photometry
         annulus_array = np.arange(0, major_diam*1.2, ann_width)# * u.arcsec 
 
 
@@ -185,7 +185,13 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # -------------------------
 
         # initialize a table (or, rather, the rows... turn into table later)
-        table_rows = []
+        cols = ['radius','count_rate','count_rate_err',
+                    'count_rate_err_bg','count_rate_err_poisson',
+                    'mu','mu_err','n_pix']
+        units = ['arcsec','counts/sec','counts/sec',
+                     'counts/sec','counts/sec',
+                     'mag/arcsec2','mag/arcsec2','']
+        phot_table = {key:np.zeros(len(annulus_array)-1) for key in cols}
 
         #for i in range(len(annulus_array)-1):
         for i in [30]:
@@ -226,11 +232,21 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             if offset_file == True:
                 counts_off_list = counts_off_array[nonzero_annulus]
             pdb.set_trace()
+
+            # do photometry
+            if offset_file == True:
+                ann_temp = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list)
+            else:
+                ann_temp = do_phot(annulus_list, counts_list, exp_list)
+
+            # subtract background
+            ann_phot = ann_temp['count_rate_per_pix'] - sky_phot['count_rate_per_pix']
+            ann_phot_err = sqrt(ann_temp['count_rate_err_per_pix']**2 +
+                                    sky_phot['count_rate_err_per_pix']**2 +
+                                    np.std(seg_phot)**2 )
+
+            # multiply by the number of pixels in the annulus to get the total count rate
             
-            # do some photometry
-            phot_table = aperture_photometry(hdu_counts[1].data, aperture)
-
-
             
             pdb.set_trace()
 
