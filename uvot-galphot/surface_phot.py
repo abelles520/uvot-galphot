@@ -151,8 +151,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         theta_start = 0
 
         # array to save results
-        seg_phot = np.zeros(len(delta_list))
-        seg_phot_err = np.zeros(len(delta_list))
+        sky_seg_phot = np.zeros(len(delta_list))
+        sky_seg_phot_err = np.zeros(len(delta_list))
         
         
         for i in range(len(delta_list)):
@@ -171,14 +171,12 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             else:
                 temp = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
             # save it
-            seg_phot[i] = temp['count_rate_per_pix']
-            seg_phot_err[i] = temp['count_rate_err_per_pix']
+            sky_seg_phot[i] = temp['count_rate_per_pix']
+            sky_seg_phot_err[i] = temp['count_rate_err_per_pix']
             # next segment
             theta_start += delta_list[i]
 
         
-
-        pdb.set_trace()
 
         # -------------------------
         # photometry for each aperture
@@ -186,7 +184,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         # initialize a table (or, rather, the rows... turn into table later)
         cols = ['radius','count_rate','count_rate_err',
-                    'count_rate_err_bg','count_rate_err_poisson',
+                    'count_rate_err_poisson','count_rate_err_bg',
                     'mu','mu_err','n_pix']
         units = ['arcsec','counts/sec','counts/sec',
                      'counts/sec','counts/sec',
@@ -195,7 +193,10 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         #for i in range(len(annulus_array)-1):
         for i in [30]:
-            
+
+            # save radius
+            phot_table['radius'][i] = annulus_array[i+1]
+
             # define aperture object
             aperture = EllipticalAnnulus(tuple(ellipse_center[0]),
                                              a_in=annulus_array[i]/arcsec_per_pix,
@@ -207,8 +208,13 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             # turn aperture into an image
             annulus_im = annulus_mask[0].to_image(hdu_counts[1].data.shape)
 
-            # get total number of pixels
-            tot_pix = np.sum(annulus_im)
+            # get total number of pixels (using ellipse areas, in case some of the aperture is off the image)
+            #tot_pix = np.sum(annulus_im)
+            area_out = np.pi * annulus_array[i+1]/arcsec_per_pix * annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam
+            area_in = np.pi * annulus_array[i]/arcsec_per_pix * annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam * (annulus_array[i]/annulus_array[i+1])
+            tot_pix = area_out - area_in
+            tot_arcsec2 = tot_pix * arcsec_per_pix**2
+            phot_table['n_pix'][i] = tot_pix
             
             # make masked version using input ds9 file
             if mask_file is not None:
@@ -221,9 +227,6 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             #plt.imshow(annulus_im, origin='lower')
             #plt.colorbar()
 
-            # get total number of pixels post-mask
-            tot_pix_mask = np.sum(annulus_im)
-
             # list of values within aperture
             nonzero_annulus = np.where(annulus_im > 1e-5)
             annulus_list = annulus_im[nonzero_annulus]
@@ -231,7 +234,6 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             exp_list = hdu_ex[1].data[nonzero_annulus]
             if offset_file == True:
                 counts_off_list = counts_off_array[nonzero_annulus]
-            pdb.set_trace()
 
             # do photometry
             if offset_file == True:
@@ -240,13 +242,29 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                 ann_temp = do_phot(annulus_list, counts_list, exp_list)
 
             # subtract background
-            ann_phot = ann_temp['count_rate_per_pix'] - sky_phot['count_rate_per_pix']
-            ann_phot_err = sqrt(ann_temp['count_rate_err_per_pix']**2 +
-                                    sky_phot['count_rate_err_per_pix']**2 +
-                                    np.std(seg_phot)**2 )
+            ann_phot_per_pix = ann_temp['count_rate_per_pix'] - sky_phot['count_rate_per_pix']
+            ann_phot_per_pix_err = np.sqrt(ann_temp['count_rate_err_per_pix']**2 +
+                                            sky_phot['count_rate_err_per_pix']**2 +
+                                            np.std(sky_seg_phot)**2 )
 
             # multiply by the number of pixels in the annulus to get the total count rate
+            ann_phot = ann_phot_per_pix * tot_pix
+            ann_phot_err = ann_phot_per_pix_err * tot_pix
+
+            phot_table['count_rate'][i] = ann_phot
+            phot_table['count_rate_err'][i] = ann_phot_err
+
+            # convert to surface brightness
+            mag = -2.5 * np.log10(ann_phot) + zeropoint
+            mag_err = 2.5/np.log(10) * ann_phot_err/ann_phot
+
+            phot_table['mu'][i] = mag/tot_arcsec2
+            phot_table['mu_err'][i] = mag_err/tot_arcsec2
             
+            
+            # save results
+            #cols = ['count_rate_err_poisson','count_rate_err_bg']
+
             
             pdb.set_trace()
 
@@ -378,8 +396,6 @@ def do_phot(annulus_list, counts_list, exp_list,
     tot_count_rate_per_pix_err = tot_count_rate_err/len(count_rate)
     tot_count_rate_per_pix_pois_err = tot_count_rate_pois_err/len(count_rate)
     tot_count_rate_per_pix_off_err = tot_count_rate_off_err/len(count_rate)
-
-    pdb.set_trace()
 
     # return results
     return {'count_rate_per_pix':tot_count_rate_per_pix,
