@@ -336,39 +336,53 @@ def do_phot(annulus_list, counts_list, exp_list,
 
     """
 
-    # start with poisson errors for counts
-    # - if there was an offset already, incorporate that into counts error
+    # account for poisson errors from counts and any offset errors
     if offset_list is not None:
-        orig_err = np.sqrt(counts_list - offset_list)
-        err_from_offset = np.sqrt(np.abs(offset_list))
-        counts_err = np.sqrt( orig_err**2 + err_from_offset**2 )
-    # - otherwise just do poisson
+        pois_err = np.sqrt(counts_list - offset_list)
+        off_err = np.sqrt(np.abs(offset_list))
     else:
-        counts_err = np.sqrt(counts_list)
+        pois_err = np.sqrt(counts_list)
+        off_err = np.zeros(counts_list.shape)
+    # the combined error   
+    counts_err = np.sqrt( pois_err**2 + off_err**2 )
 
-    # multiply counts and counts_err by covering fraction
+    # multiply by covering fraction
     counts = counts_list * annulus_list
     counts_err *= annulus_list
+    pois_err *= annulus_list
+    off_err *= annulus_list
 
     # count rate
     count_rate = counts / exp_list
     count_rate_err = counts_err / exp_list
+    count_rate_pois_err = pois_err / exp_list
+    count_rate_off_err = off_err / exp_list
 
     # do sigma clipping, if chosen
     if sig_clip is not None:
         pix_clip = sigma_clip(count_rate, sigma=3, iters=sig_clip)
         count_rate = count_rate[~pix_clip.mask]
         count_rate_err = count_rate_err[~pix_clip.mask]
+        count_rate_pois_err = count_rate_pois_err[~pix_clip.mask]
+        count_rate_off_err = count_rate_off_err[~pix_clip.mask]
+
 
     # total count rate
     tot_count_rate = np.sum(count_rate)
     tot_count_rate_err = np.sqrt(np.sum( count_rate_err**2 ))
+    tot_count_rate_pois_err = np.sqrt(np.sum( count_rate_pois_err**2 ))
+    tot_count_rate_off_err = np.sqrt(np.sum( count_rate_off_err**2 ))
 
     # total count rate per pixel
     tot_count_rate_per_pix = tot_count_rate/len(count_rate)
     tot_count_rate_per_pix_err = tot_count_rate_err/len(count_rate)
+    tot_count_rate_per_pix_pois_err = tot_count_rate_pois_err/len(count_rate)
+    tot_count_rate_per_pix_off_err = tot_count_rate_off_err/len(count_rate)
 
+    pdb.set_trace()
 
     # return results
     return {'count_rate_per_pix':tot_count_rate_per_pix,
-                'count_rate_err_per_pix':tot_count_rate_per_pix_err}
+                'count_rate_err_per_pix':tot_count_rate_per_pix_err,
+                'count_rate_pois_err_per_pix':tot_count_rate_per_pix_pois_err,
+                'count_rate_off_err_per_pix':tot_count_rate_per_pix_off_err }
