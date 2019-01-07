@@ -194,9 +194,9 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         units = ['arcsec','cts/sec','cts/sec',
                      'cts/sec','cts/sec',
                      'ABmag/arcsec2','ABmag/arcsec2','']
-        dtypes = ['f8','f8','f8',
-                      'f8','f8',
-                      'f8','f8','f8']
+        dtypes = ['%9.3f','%9f','%9f',
+                      '%9f','%9f',
+                      '%9f','%9f','%9f']
         phot_dict = {key:np.zeros(len(annulus_array)-1) for key in cols}
 
         for i in range(len(annulus_array)-1):
@@ -286,20 +286,19 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             #[print(k+': ', phot_dict[k][i]) for k in cols]
             #pdb.set_trace()
 
-        # duplicate columns with units in name
-        new_phot_dict = {key+'('+units[k]+')':phot_dict[key] for k,key in enumerate(cols)}
-        new_cols = [key+'('+units[k]+')' for k,key in enumerate(cols)]
-            
-        # make astropy table
-        phot_table = Table(new_phot_dict, names=tuple(new_cols), dtype=tuple(dtypes))
 
-        # write it out
-        phot_table.write(label+'phot_profile.dat', format='ascii.fixed_width', overwrite=True)
-        
-        # return various useful into
-        return {'phot_table':phot_table, 'sky_phot':sky_phot,
-                    'sky_seg_phot':sky_seg_phot, 'sky_seg_phot_err':sky_seg_phot_err}
+        # make big numpy array
+        data_array = np.column_stack(tuple([phot_dict[key] for key in cols]))
+        # save it to a file
+        np.savetxt(label+'phot_profile.dat', data_array,
+                       header=' '.join(cols) + '\n' + ' '.join(units),
+                       delimiter='  ', fmt=dtypes)
                     
+        # return various useful into
+        return {'phot_dict':phot_dict, 'cols':cols, 'units':units,
+                    'sky_phot':sky_phot,
+                    'sky_seg_phot':sky_seg_phot, 'sky_seg_phot_err':sky_seg_phot_err}
+
 
 
 def make_mask_image(hdu, mask_file):
