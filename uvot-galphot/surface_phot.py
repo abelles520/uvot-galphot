@@ -74,6 +74,19 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             with fits.open(label+'sk_off.fits') as hdu_off:
                 counts_off_array = hdu_off[1].data
 
+            # for some unknown reason (uvotimsum bug?), the offset file could have NaNs
+            # -> mask them
+            if np.sum(~np.isfinite(counts_off_array)) > 0:
+                bad_pix = np.where(np.isfinite(counts_off_array) == 0)
+                # either add to existing mask
+                if mask_file is not None:
+                    mask_image[bad_pix] = 0
+                # or make new mask
+                if mask_file is None:
+                    mask_image = np.ones(counts_off_array.shape)
+                    mask_image[bad_pix] = 0
+                    mask_file = 'mask_from_offset_nans'
+
         # WCS for the images
         wcs_counts = wcs.WCS(hdu_counts[1].header)
         arcsec_per_pix = wcs_counts.wcs.cdelt[1] * 3600
@@ -131,7 +144,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
         else:
             sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
-        
+
 
         # -------------------------
         # sky background variation
