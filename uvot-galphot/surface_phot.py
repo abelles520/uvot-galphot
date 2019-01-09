@@ -422,7 +422,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # (see Gil de Paz et al 2007, section 4.3)
         
         # - grab points with the last third of flux accumulation
-        use_ind = np.where(phot_dict_tot['count_rate'] > 0.9 * phot_dict_tot['count_rate'][-1])
+        use_ind = np.where(phot_dict_tot['count_rate'] > 0.9 * np.max(phot_dict_tot['count_rate']))
         use_rad = phot_dict_tot['radius'][use_ind]
         use_cr = phot_dict_tot['count_rate'][use_ind]
         use_cr_err = phot_dict_tot['count_rate_err'][use_ind]
