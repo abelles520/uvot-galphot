@@ -414,12 +414,83 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
 
 
+        # -------------------------
+        # calculate magnitudes
+        # -------------------------
 
-        # return various useful into
+        # asymptotic: plot accumulated flux vs gradient of accumulated flux, then get y-intercept
+        # (see Gil de Paz et al 2007, section 4.3)
+        
+        # - grab points with the last third of flux accumulation
+        use_ind = np.where(phot_dict_tot['count_rate'] > 0.9 * phot_dict_tot['count_rate'][-1])
+        use_rad = phot_dict_tot['radius'][use_ind]
+        use_cr = phot_dict_tot['count_rate'][use_ind]
+        use_cr_err = phot_dict_tot['count_rate_err'][use_ind]
+        grad = np.diff(use_cr) / np.diff(use_rad)
+        
+        # - bootstrap linear fit
+        fit_boot = boot_lin_fit(grad, use_cr[1:], use_cr_err[1:])
+
+        # - convert flux to mags
+        asym_mag = -2.5 * np.log10(fit_boot['int']) + zeropoint
+        asym_mag_err = np.sqrt( ( 2.5/np.log(10) * fit_boot['int_err']/fit_boot['int'] )**2 +
+                                    zeropoint_err**2 )
+
+        # - save it
+        np.savetxt(label+'phot_asymmag.dat',
+                       np.array([[fit_boot['int'], fit_boot['int_err'], asym_mag, asym_mag_err]]),
+                       header='count_rate count_rate_err mag mag_err\ncts/sec cts/sec ABmag ABmag',
+                       delimiter='  ', fmt=['%9f','%9f','%9f','%9f'])
+
+
+        # - make plots
+        if False:
+            fig = plt.figure(figsize=(6,5), num='flux gradient stuff')
+            plt.errorbar(grad, use_cr[1:],
+                         yerr=use_cr_err[1:],
+                         marker='.', color='black', ms=5, mew=0,
+                         linestyle='-', ecolor='black', capsize=0)
+            plt.plot(np.linspace(0,np.max(grad),50),
+                     fit_boot['slope']*np.linspace(0,np.max(grad),50) + fit_boot['int'],
+                     marker='.', ms=0, mew=0,
+                     color='dodgerblue', linestyle='-')
+            ax = plt.gca()
+            ax.set_ylabel('Accumulated Flux (counts/sec)')
+            ax.set_xlabel('Gradient of Accumulated Flux')
+            plt.tight_layout()
+            pdb.set_trace()
+        
+            fig = plt.figure(figsize=(6,5), num='flux stuff')
+            plt.plot(use_rad, use_cr,
+                        marker='.', color='black', ms=5, mew=0,
+                        linestyle='-')
+            ax = plt.gca()
+            ax.set_ylabel('Accumulated Flux (counts/sec)')
+            ax.set_xlabel('Radius')
+            plt.tight_layout()
+
+
+
+        # total: outermost annular point with S/N > 2 -> get accumulated flux within that radius
+        sn = phot_dict_ann['count_rate'] / phot_dict_ann['count_rate_err']
+        ind = np.nonzero(sn > 2)[0][-1]
+        max_radius = phot_dict_tot['radius'][ind]
+        tot_mag = phot_dict_tot['mag'][ind]
+        tot_mag_err = phot_dict_tot['mag_err'][ind]
+        # save it
+        np.savetxt(label+'phot_totmag.dat',
+                       np.array([[phot_dict_tot['count_rate'][ind], phot_dict_tot['count_rate_err'][ind], tot_mag, tot_mag_err]]),
+                       header='count_rate count_rate_err mag mag_err\ncts/sec cts/sec ABmag ABmag',
+                       delimiter='  ', fmt=['%9f','%9f','%9f','%9f'])
+        
+
+        # return various useful info
         return {'phot_dict_ann':phot_dict_ann, 'cols_ann':cols_ann, 'units_ann':units_ann,
                     'phot_dict_tot':phot_dict_tot, 'cols_tot':cols_tot, 'units_tot':units_tot,
                     'sky_phot':sky_phot,
-                    'sky_seg_phot':sky_seg_phot, 'sky_seg_phot_err':sky_seg_phot_err}
+                    'sky_seg_phot':sky_seg_phot, 'sky_seg_phot_err':sky_seg_phot_err,
+                    'asym_mag':asym_mag, 'asym_mag_err':asym_mag_err,
+                    'tot_mag':tot_mag, 'tot_mag_err':tot_mag_err}
 
 
 
@@ -554,3 +625,35 @@ def do_phot(annulus_list, counts_list, exp_list,
                 'count_rate_err_per_pix':tot_count_rate_per_pix_err,
                 'count_rate_pois_err_per_pix':tot_count_rate_per_pix_pois_err,
                 'count_rate_off_err_per_pix':tot_count_rate_per_pix_off_err }
+
+
+
+def boot_lin_fit(x_in, y_in, y_err_in, n_boot=500):
+    """
+    Linear fit with bootstrap!
+    """
+
+    # initialize arrays
+    slope_array = np.zeros(n_boot)
+    int_array = np.zeros(n_boot)
+
+    for b in range(n_boot):
+
+        # draw a set of new y values
+        y_new = np.random.normal(y_in, y_err_in)
+
+        # linear fit
+        fit = np.polyfit(x_in, y_new, 1)
+
+        # save results
+        slope_array[b] = fit[0]
+        int_array[b] = fit[1]
+
+    # extract best fits and errors
+    s16, s50, s84 = np.percentile(slope_array, [16,50,84])
+    i16, i50, i84 = np.percentile(int_array, [16,50,84])
+    best_fit = {'slope':s50, 'slope_err':(s84-s16)/2,
+                    'int':i50, 'int_err':(i84-i16)/2}
+
+
+    return best_fit
