@@ -421,8 +421,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # asymptotic: plot accumulated flux vs gradient of accumulated flux, then get y-intercept
         # (see Gil de Paz et al 2007, section 4.3)
         
-        # - grab points with the last third of flux accumulation
-        use_ind = np.where(phot_dict_tot['count_rate'] > 0.9 * np.max(phot_dict_tot['count_rate']))
+        # - grab points with the last part of flux accumulation
+        use_ind = np.where(phot_dict_tot['count_rate'] >= 0.9 * np.max(phot_dict_tot['count_rate']))
         use_rad = phot_dict_tot['radius'][use_ind]
         use_cr = phot_dict_tot['count_rate'][use_ind]
         use_cr_err = phot_dict_tot['count_rate_err'][use_ind]
@@ -461,13 +461,15 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             pdb.set_trace()
         
             fig = plt.figure(figsize=(6,5), num='flux stuff')
-            plt.plot(use_rad, use_cr,
-                        marker='.', color='black', ms=5, mew=0,
-                        linestyle='-')
+            plt.errorbar(use_rad/60, use_cr,
+                         yerr=use_cr_err,
+                         marker='.', color='black', ms=5, mew=0,
+                         linestyle='-', ecolor='black', capsize=0)
             ax = plt.gca()
             ax.set_ylabel('Accumulated Flux (counts/sec)')
-            ax.set_xlabel('Radius')
+            ax.set_xlabel('Radius (arcmin)')
             plt.tight_layout()
+            pdb.set_trace()
 
 
 
