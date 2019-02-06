@@ -114,7 +114,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         sky_ann_width = ann_width * 10
         sky_out = sky_in + sky_ann_width
 
-        sky_phot, sky_seg_phot, sky_seg_phot_err = calc_sky(hdu_counts, hdu_ex,
+        sky_phot, sky_seg_phot, sky_seg_phot_err = calc_sky(hdu_counts[1], hdu_ex[1],
                                                                 ellipse_center, major_diam, minor_diam, pos_angle,
                                                                 sky_in, sky_out,
                                                                 mask_image=mask_image,
@@ -469,8 +469,9 @@ def calc_sky(hdu_counts, hdu_ex,
     """
 
     # WCS for the images
-    wcs_counts = wcs.WCS(hdu_counts[1].header)
-    arcsec_per_pix = wcs_counts.wcs.cdelt[1] * 3600
+    wcs_counts = wcs.WCS(hdu_counts.header)
+    #arcsec_per_pix = wcs_counts.wcs.cdelt[1] * 3600
+    arcsec_per_pix = wcs.utils.proj_plane_pixel_scales(wcs_counts)[0] * 3600
 
     # -------------------------
     # sky background
@@ -486,24 +487,24 @@ def calc_sky(hdu_counts, hdu_ex,
     # make an ApertureMask object with the aperture
     annulus_mask = aperture.to_mask(method='exact')
     # turn aperture into an image
-    annulus_im = annulus_mask[0].to_image(hdu_counts[1].data.shape)
+    annulus_im = annulus_mask[0].to_image(hdu_counts.data.shape)
 
     # make masked version using input ds9 file
     if mask_image is not None:
         annulus_im = annulus_im * mask_image
 
     # plot things
-    #annulus_data = annulus_mask[0].multiply(hdu_counts[1].data)
-    #plt.imshow(annulus_mask[0])
-    #plt.imshow(annulus_data, origin='lower')
+    #annulus_data = annulus_mask[0].multiply(hdu_counts.data)
+    #plt.imshow(annulus_mask[0], origin='lower')
+    #plt.imshow(np.log10(annulus_data), origin='lower')
     #plt.imshow(annulus_im, origin='lower')
     #plt.colorbar()
 
     # list of values within aperture
     nonzero_annulus = np.where(annulus_im > 1e-5)
     annulus_list = annulus_im[nonzero_annulus]
-    counts_list = hdu_counts[1].data[nonzero_annulus]
-    exp_list = hdu_ex[1].data[nonzero_annulus]
+    counts_list = hdu_counts.data[nonzero_annulus]
+    exp_list = hdu_ex.data[nonzero_annulus]
     if counts_off_array is not None:
         counts_off_list = counts_off_array[nonzero_annulus]
 
@@ -512,7 +513,6 @@ def calc_sky(hdu_counts, hdu_ex,
         sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
     else:
         sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
-
 
     # -------------------------
     # sky background variation
@@ -537,28 +537,32 @@ def calc_sky(hdu_counts, hdu_ex,
     theta_start = 0
 
     # array to save results
-    sky_seg_phot = np.zeros(len(delta_list))
-    sky_seg_phot_err = np.zeros(len(delta_list))
+    sky_seg_phot = np.full(len(delta_list), np.nan)
+    sky_seg_phot_err = np.full(len(delta_list), np.nan)
     
     
     for i in range(len(delta_list)):
         # indices of the current segment
         seg = np.where((theta_deg >= theta_start) & (theta_deg < theta_start+delta_list[i]))
         ind = (nonzero_annulus[0][seg[0]], nonzero_annulus[1][seg[0]])
-        # list of values within segment
-        annulus_list = annulus_im[ind]
-        counts_list = hdu_counts[1].data[ind]
-        exp_list = hdu_ex[1].data[ind]
-        if counts_off_array is not None:
-            counts_off_list = counts_off_array[ind]
-        # do photometry
-        if counts_off_array is not None:
-            temp = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
-        else:
-            temp = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
-        # save it
-        sky_seg_phot[i] = temp['count_rate_per_pix']
-        sky_seg_phot_err[i] = temp['count_rate_err_per_pix']
+
+        if len(ind[0]) > 20:
+            print('** doing theta='+str(theta_start))
+            # list of values within segment
+            annulus_list = annulus_im[ind]
+            counts_list = hdu_counts.data[ind]
+            exp_list = hdu_ex.data[ind]
+            if counts_off_array is not None:
+                counts_off_list = counts_off_array[ind]
+            # do photometry
+            if counts_off_array is not None:
+                temp = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
+            else:
+                temp = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
+            # save it
+            sky_seg_phot[i] = temp['count_rate_per_pix']
+            sky_seg_phot_err[i] = temp['count_rate_err_per_pix']
+
         # next segment
         theta_start += delta_list[i]
 
