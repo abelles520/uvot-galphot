@@ -424,7 +424,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
 def calc_sky(hdu_counts, hdu_ex,
                  ellipse_center, major_diam, minor_diam, pos_angle,
-                 sky_in, sky_out, mask_image=None, counts_off_array=None):
+                 sky_in, sky_out, mask_image=None, counts_off_array=None,
+                 n_seg_bg_var=8, sig_clip=2):
     """
     Calculate the sky count rate per pixel and the large-scale variation
 
@@ -453,6 +454,14 @@ def calc_sky(hdu_counts, hdu_ex,
 
     counts_off_array : array of floats (default=None)
         an image giving any previously applied offsets
+
+    n_seg_bg_var : int
+        number of segments to divide the sky annulus into for background
+        variation estimate
+
+    sig_clip : float (default=2)
+        apply a N iterations of sigma clipping to count rate values before
+        calculating sky
 
 
     Returns
@@ -499,6 +508,7 @@ def calc_sky(hdu_counts, hdu_ex,
     #plt.imshow(np.log10(annulus_data), origin='lower')
     #plt.imshow(annulus_im, origin='lower')
     #plt.colorbar()
+    #pdb.set_trace()
 
     # list of values within aperture
     nonzero_annulus = np.where(annulus_im > 1e-5)
@@ -510,9 +520,9 @@ def calc_sky(hdu_counts, hdu_ex,
 
     # calculate background
     if counts_off_array is not None:
-        sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
+        sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=sig_clip)
     else:
-        sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
+        sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=sig_clip)
 
     # -------------------------
     # sky background variation
@@ -528,12 +538,26 @@ def calc_sky(hdu_counts, hdu_ex,
     theta_deg = theta * 180/np.pi
     # shift starting point to match position angle of galaxy
     theta_deg = (theta_deg + (90-pos_angle)) % 360
-    #pdb.set_trace()
 
+        
+    # increments of theta for N equal-area segments
+    theta_k_list = np.arange(n_seg_bg_var+1) * 360/n_seg_bg_var
+    phi_list = np.abs( np.arctan(minor_diam/major_diam * np.tan(theta_k_list * np.pi/180)) * 180/np.pi )
+    # (adjustments for each quadrant)
+    q2 = (theta_k_list > 90) & (theta_k_list <= 180)
+    phi_list[q2] = (90 - phi_list[q2]) + 90
+    q3 = (theta_k_list > 180) & (theta_k_list <= 270)
+    phi_list[q3] = phi_list[q3] + 180
+    q4 = (theta_k_list > 270) & (theta_k_list <= 360)
+    phi_list[q4] = (90 - phi_list[q4]) + 270
+    # list of deltas
+    delta_list = np.diff(phi_list)
+    
+    
     # increments of theta for 8 equal-area segments
-    delta_theta = np.arctan(minor_diam/major_diam) * 180/np.pi
-    delta_list = [delta_theta, 90-delta_theta, 90-delta_theta, delta_theta,
-                      delta_theta, 90-delta_theta, 90-delta_theta, delta_theta]
+    #delta_theta = np.arctan(minor_diam/major_diam) * 180/np.pi
+    #delta_list = [delta_theta, 90-delta_theta, 90-delta_theta, delta_theta,
+    #                  delta_theta, 90-delta_theta, 90-delta_theta, delta_theta]
     theta_start = 0
 
     # array to save results
@@ -546,8 +570,14 @@ def calc_sky(hdu_counts, hdu_ex,
         seg = np.where((theta_deg >= theta_start) & (theta_deg < theta_start+delta_list[i]))
         ind = (nonzero_annulus[0][seg[0]], nonzero_annulus[1][seg[0]])
 
-        if len(ind[0]) > 20:
-            print('** doing theta='+str(theta_start))
+        #temp = np.zeros(annulus_im.shape)
+        #temp[ind] = 1
+        #plt.imshow(temp, origin='lower')
+        #plt.colorbar()
+        #pdb.set_trace()
+
+        if len(ind[0]) > 25:
+            #print('** doing theta='+str(theta_start))
             # list of values within segment
             annulus_list = annulus_im[ind]
             counts_list = hdu_counts.data[ind]
@@ -660,7 +690,7 @@ def do_phot(annulus_list, counts_list, exp_list,
         pois_err = np.sqrt(counts_list - offset_list)
         off_err = np.sqrt(np.abs(offset_list))
     else:
-        pois_err = np.sqrt(counts_list)
+        pois_err = np.sqrt(np.abs(counts_list))
         off_err = np.zeros(counts_list.shape)
     # the combined error   
     counts_err = np.sqrt( pois_err**2 + off_err**2 )
@@ -684,8 +714,7 @@ def do_phot(annulus_list, counts_list, exp_list,
         count_rate_err = count_rate_err[~pix_clip.mask]
         count_rate_pois_err = count_rate_pois_err[~pix_clip.mask]
         count_rate_off_err = count_rate_off_err[~pix_clip.mask]
-
-
+        
     # total count rate
     tot_count_rate = np.sum(count_rate)
     tot_count_rate_err = np.sqrt(np.sum( count_rate_err**2 ))
