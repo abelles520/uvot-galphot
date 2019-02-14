@@ -68,6 +68,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # if mask file is provided, make a mask image
         if mask_file is not None:
             mask_image = make_mask_image(hdu_counts[1], mask_file)
+        else:
+            mask_image = None
 
         # if offset file is set, save it into an array
         if offset_file == True:
@@ -86,6 +88,9 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                     mask_image = np.ones(counts_off_array.shape)
                     mask_image[bad_pix] = 0
                     mask_file = 'mask_from_offset_nans'
+        else:
+            counts_off_array = None
+
 
         # WCS for the images
         wcs_counts = wcs.WCS(hdu_counts[1].header)
@@ -93,7 +98,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         
         # ellipse center
         #ellipse_center = SkyCoord(ra=center_ra*u.deg, dec=center_dec*u.deg)
-        ellipse_center = wcs_counts.wcs_world2pix([[center_ra,center_dec]], 0)
+        ellipse_center = wcs_counts.wcs_world2pix([[center_ra,center_dec]], 0)[0]
         
         # array of annuli over which to do photometry
         annulus_array = np.arange(0, major_diam*1.2, ann_width)# * u.arcsec 
@@ -101,99 +106,19 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         
         # -------------------------
-        # sky background
+        # sky background and variation
         # -------------------------
 
         # size of sky annulus
         sky_in = annulus_array[-1]
         sky_ann_width = ann_width * 10
         sky_out = sky_in + sky_ann_width
-        
-        # define aperture object
-        aperture = EllipticalAnnulus(tuple(ellipse_center[0]),
-                                         a_in=sky_in/arcsec_per_pix,
-                                         a_out=sky_out/arcsec_per_pix,
-                                         b_out=sky_out/arcsec_per_pix * minor_diam/major_diam,
-                                         theta=(90+pos_angle)*np.pi/180)
-        # make an ApertureMask object with the aperture
-        annulus_mask = aperture.to_mask(method='exact')
-        # turn aperture into an image
-        annulus_im = annulus_mask[0].to_image(hdu_counts[1].data.shape)
 
-        # make masked version using input ds9 file
-        if mask_file is not None:
-            annulus_im = annulus_im * mask_image
-
-        # plot things
-        #annulus_data = annulus_mask[0].multiply(hdu_counts[1].data)
-        #plt.imshow(annulus_mask[0])
-        #plt.imshow(annulus_data, origin='lower')
-        #plt.imshow(annulus_im, origin='lower')
-        #plt.colorbar()
-
-        # list of values within aperture
-        nonzero_annulus = np.where(annulus_im > 1e-5)
-        annulus_list = annulus_im[nonzero_annulus]
-        counts_list = hdu_counts[1].data[nonzero_annulus]
-        exp_list = hdu_ex[1].data[nonzero_annulus]
-        if offset_file == True:
-            counts_off_list = counts_off_array[nonzero_annulus]
-
-        # calculate background
-        if offset_file == True:
-            sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
-        else:
-            sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
-
-
-        # -------------------------
-        # sky background variation
-        # -------------------------
-
-        # define theta around the sky annulus
-        delta_x = nonzero_annulus[1] - ellipse_center[0][0]
-        delta_y = nonzero_annulus[0] - ellipse_center[0][1]
-        theta = np.arccos(delta_x/np.sqrt(delta_x**2 + delta_y**2))
-        # go from 0->2pi instead of 0->pi and pi->0 (yay arccos?)
-        theta[delta_y < 0] = np.pi + (np.pi - theta[delta_y < 0])
-        # convert to degrees
-        theta_deg = theta * 180/np.pi
-        # shift starting point to match position angle of galaxy
-        theta_deg = (theta_deg + (90-pos_angle)) % 360
-        #pdb.set_trace()
-
-        # increments of theta for 8 equal-area segments
-        delta_theta = np.arctan(minor_diam/major_diam) * 180/np.pi
-        delta_list = [delta_theta, 90-delta_theta, 90-delta_theta, delta_theta,
-                          delta_theta, 90-delta_theta, 90-delta_theta, delta_theta]
-        theta_start = 0
-
-        # array to save results
-        sky_seg_phot = np.zeros(len(delta_list))
-        sky_seg_phot_err = np.zeros(len(delta_list))
-        
-        
-        for i in range(len(delta_list)):
-            # indices of the current segment
-            seg = np.where((theta_deg >= theta_start) & (theta_deg < theta_start+delta_list[i]))
-            ind = (nonzero_annulus[0][seg[0]], nonzero_annulus[1][seg[0]])
-            # list of values within segment
-            annulus_list = annulus_im[ind]
-            counts_list = hdu_counts[1].data[ind]
-            exp_list = hdu_ex[1].data[ind]
-            if offset_file == True:
-                counts_off_list = counts_off_array[ind]
-            # do photometry
-            if offset_file == True:
-                temp = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
-            else:
-                temp = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
-            # save it
-            sky_seg_phot[i] = temp['count_rate_per_pix']
-            sky_seg_phot_err[i] = temp['count_rate_err_per_pix']
-            # next segment
-            theta_start += delta_list[i]
-
+        sky_phot, sky_seg_phot, sky_seg_phot_err = calc_sky(hdu_counts[1], hdu_ex[1],
+                                                                ellipse_center, major_diam, minor_diam, pos_angle,
+                                                                sky_in, sky_out,
+                                                                mask_image=mask_image,
+                                                                counts_off_array=counts_off_array)
         
 
         # -------------------------
@@ -219,7 +144,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             phot_dict_ann['radius'][i] = annulus_array[i+1]
 
             # define aperture object
-            aperture = EllipticalAnnulus(tuple(ellipse_center[0]),
+            aperture = EllipticalAnnulus(tuple(ellipse_center),
                                              a_in=annulus_array[i]/arcsec_per_pix,
                                              a_out=annulus_array[i+1]/arcsec_per_pix,
                                              b_out=annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam,
@@ -331,7 +256,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             phot_dict_tot['radius'][i] = annulus_array[i+1]
 
             # define aperture object
-            aperture = EllipticalAperture(tuple(ellipse_center[0]),
+            aperture = EllipticalAperture(tuple(ellipse_center),
                                              a=annulus_array[i+1]/arcsec_per_pix,
                                              b=annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam,
                                              theta=(90+pos_angle)*np.pi/180)
@@ -496,6 +421,187 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
 
 
+
+def calc_sky(hdu_counts, hdu_ex,
+                 ellipse_center, major_diam, minor_diam, pos_angle,
+                 sky_in, sky_out, mask_image=None, counts_off_array=None,
+                 n_seg_bg_var=8, sig_clip=2):
+    """
+    Calculate the sky count rate per pixel and the large-scale variation
+
+    Parameters
+    ----------
+    hdu_counts : astropy hdu object
+        An HDU with the counts image image
+
+    hdu_counts : astropy hdu object
+        An HDU with the counts image image
+
+    ellipse_center : list of two floats
+        RA and Dec (degrees) of the ellipse center
+
+    major_diam, minor_diam : float
+        major and minor axes (units irrelevant, since only the ratio is used here)
+
+    pos_angle : float
+        position angle of ellipse
+
+    sky_in, sky_out : float
+        boundaries of sky annulus (arcsec)
+
+    mask_image : astropy hdu object (default=None)
+        an image of 1s and 0s, where 0s represent masked pixels
+
+    counts_off_array : array of floats (default=None)
+        an image giving any previously applied offsets
+
+    n_seg_bg_var : int
+        number of segments to divide the sky annulus into for background
+        variation estimate
+
+    sig_clip : float (default=2)
+        apply a N iterations of sigma clipping to count rate values before
+        calculating sky
+
+
+    Returns
+    -------
+    sky_phot : dictionary
+        sky count rate per pixel, and uncertainties
+
+    sky_seg_phot : array of floats
+        count rate per pixel in each of the 8 sky segments
+
+    sky_seg_phot_err : array of floats
+        uncertainty for each sky_seg_phot value
+
+    """
+
+    # WCS for the images
+    wcs_counts = wcs.WCS(hdu_counts.header)
+    #arcsec_per_pix = wcs_counts.wcs.cdelt[1] * 3600
+    arcsec_per_pix = wcs.utils.proj_plane_pixel_scales(wcs_counts)[0] * 3600
+
+    # -------------------------
+    # sky background
+    # -------------------------
+
+       
+    # define aperture object
+    aperture = EllipticalAnnulus(tuple(ellipse_center),
+                                     a_in=sky_in/arcsec_per_pix,
+                                     a_out=sky_out/arcsec_per_pix,
+                                     b_out=sky_out/arcsec_per_pix * minor_diam/major_diam,
+                                     theta=(90+pos_angle)*np.pi/180)
+    # make an ApertureMask object with the aperture
+    annulus_mask = aperture.to_mask(method='exact')
+    # turn aperture into an image
+    annulus_im = annulus_mask[0].to_image(hdu_counts.data.shape)
+
+    # make masked version using input ds9 file
+    if mask_image is not None:
+        annulus_im = annulus_im * mask_image
+
+    # plot things
+    #annulus_data = annulus_mask[0].multiply(hdu_counts.data)
+    #plt.imshow(annulus_mask[0], origin='lower')
+    #plt.imshow(np.log10(annulus_data), origin='lower')
+    #plt.imshow(annulus_im, origin='lower')
+    #plt.colorbar()
+    #pdb.set_trace()
+
+    # list of values within aperture
+    nonzero_annulus = np.where(annulus_im > 1e-5)
+    annulus_list = annulus_im[nonzero_annulus]
+    counts_list = hdu_counts.data[nonzero_annulus]
+    exp_list = hdu_ex.data[nonzero_annulus]
+    if counts_off_array is not None:
+        counts_off_list = counts_off_array[nonzero_annulus]
+
+    # calculate background
+    if counts_off_array is not None:
+        sky_phot = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=sig_clip)
+    else:
+        sky_phot = do_phot(annulus_list, counts_list, exp_list, sig_clip=sig_clip)
+
+    # -------------------------
+    # sky background variation
+    # -------------------------
+
+    # define theta around the sky annulus
+    delta_x = nonzero_annulus[1] - ellipse_center[0]
+    delta_y = nonzero_annulus[0] - ellipse_center[1]
+    theta = np.arccos(delta_x/np.sqrt(delta_x**2 + delta_y**2))
+    # go from 0->2pi instead of 0->pi and pi->0 (yay arccos?)
+    theta[delta_y < 0] = np.pi + (np.pi - theta[delta_y < 0])
+    # convert to degrees
+    theta_deg = theta * 180/np.pi
+    # shift starting point to match position angle of galaxy
+    theta_deg = (theta_deg + (90-pos_angle)) % 360
+
+        
+    # increments of theta for N equal-area segments
+    theta_k_list = np.arange(n_seg_bg_var+1) * 360/n_seg_bg_var
+    phi_list = np.abs( np.arctan(minor_diam/major_diam * np.tan(theta_k_list * np.pi/180)) * 180/np.pi )
+    # (adjustments for each quadrant)
+    q2 = (theta_k_list > 90) & (theta_k_list <= 180)
+    phi_list[q2] = (90 - phi_list[q2]) + 90
+    q3 = (theta_k_list > 180) & (theta_k_list <= 270)
+    phi_list[q3] = phi_list[q3] + 180
+    q4 = (theta_k_list > 270) & (theta_k_list <= 360)
+    phi_list[q4] = (90 - phi_list[q4]) + 270
+    # list of deltas
+    delta_list = np.diff(phi_list)
+    
+    
+    # increments of theta for 8 equal-area segments
+    #delta_theta = np.arctan(minor_diam/major_diam) * 180/np.pi
+    #delta_list = [delta_theta, 90-delta_theta, 90-delta_theta, delta_theta,
+    #                  delta_theta, 90-delta_theta, 90-delta_theta, delta_theta]
+    theta_start = 0
+
+    # array to save results
+    sky_seg_phot = np.full(len(delta_list), np.nan)
+    sky_seg_phot_err = np.full(len(delta_list), np.nan)
+    
+    
+    for i in range(len(delta_list)):
+        # indices of the current segment
+        seg = np.where((theta_deg >= theta_start) & (theta_deg < theta_start+delta_list[i]))
+        ind = (nonzero_annulus[0][seg[0]], nonzero_annulus[1][seg[0]])
+
+        #temp = np.zeros(annulus_im.shape)
+        #temp[ind] = 1
+        #plt.imshow(temp, origin='lower')
+        #plt.colorbar()
+        #pdb.set_trace()
+
+        if len(ind[0]) > 25:
+            #print('** doing theta='+str(theta_start))
+            # list of values within segment
+            annulus_list = annulus_im[ind]
+            counts_list = hdu_counts.data[ind]
+            exp_list = hdu_ex.data[ind]
+            if counts_off_array is not None:
+                counts_off_list = counts_off_array[ind]
+            # do photometry
+            if counts_off_array is not None:
+                temp = do_phot(annulus_list, counts_list, exp_list, offset_list=counts_off_list, sig_clip=2)
+            else:
+                temp = do_phot(annulus_list, counts_list, exp_list, sig_clip=2)
+            # save it
+            sky_seg_phot[i] = temp['count_rate_per_pix']
+            sky_seg_phot_err[i] = temp['count_rate_err_per_pix']
+
+        # next segment
+        theta_start += delta_list[i]
+
+
+    # return useful quantities
+    return sky_phot, sky_seg_phot, sky_seg_phot_err
+
+        
+
 def make_mask_image(hdu, mask_file):
     """
     Make a mask file (foreground stars, background galaxies) that can be
@@ -584,7 +690,7 @@ def do_phot(annulus_list, counts_list, exp_list,
         pois_err = np.sqrt(counts_list - offset_list)
         off_err = np.sqrt(np.abs(offset_list))
     else:
-        pois_err = np.sqrt(counts_list)
+        pois_err = np.sqrt(np.abs(counts_list))
         off_err = np.zeros(counts_list.shape)
     # the combined error   
     counts_err = np.sqrt( pois_err**2 + off_err**2 )
@@ -608,8 +714,7 @@ def do_phot(annulus_list, counts_list, exp_list,
         count_rate_err = count_rate_err[~pix_clip.mask]
         count_rate_pois_err = count_rate_pois_err[~pix_clip.mask]
         count_rate_off_err = count_rate_off_err[~pix_clip.mask]
-
-
+        
     # total count rate
     tot_count_rate = np.sum(count_rate)
     tot_count_rate_err = np.sqrt(np.sum( count_rate_err**2 ))
