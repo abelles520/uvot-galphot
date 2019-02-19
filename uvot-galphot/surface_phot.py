@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 from photutils import SkyEllipticalAperture, SkyEllipticalAnnulus, aperture_photometry, EllipticalAnnulus, EllipticalAperture
 from astropy.io import fits
@@ -71,6 +72,12 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
     counts_im = label + 'sk.fits'
     exp_im = label + 'ex.fits'
     offset_im = label + 'sk_off.fits'
+
+    # if files don't exist, return NaN
+    if (not os.path.isfile(counts_im)) or (not os.path.isfile(exp_im)):
+        print('surface_phot: image(s) not found')
+        return np.nan
+    
 
     with fits.open(counts_im) as hdu_counts, fits.open(exp_im) as hdu_ex:
 
