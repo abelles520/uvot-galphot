@@ -15,6 +15,7 @@ import pdb
 
 def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle,
                      ann_width, zeropoint, zeropoint_err=0.0,
+                     aperture_factor=1.0,
                      mask_file=None, offset_file=False,
                      verbose=False):
     """
@@ -45,6 +46,10 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
     zeropoint_err : float (default=0)
         uncertainty for the zeropoint
+
+    aperture_factor : float (default=1.0)
+        make the aperture larger by a factor of N (useful to quickly adjust
+        aperture if, e.g., you know R25 is too small for your UV galaxy)
 
     mask_file : string (default=None)
         path+name of ds9 region file with masks
@@ -101,7 +106,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         ellipse_center = wcs_counts.wcs_world2pix([[center_ra,center_dec]], 0)[0]
         
         # array of annuli over which to do photometry
-        annulus_array = np.arange(0, major_diam*1.2, ann_width)# * u.arcsec 
+        annulus_array = np.arange(0, major_diam*aperture_factor, ann_width)# * u.arcsec 
 
 
         
