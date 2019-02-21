@@ -9,7 +9,7 @@ from astropy import wcs
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.stats import biweight_location, sigma_clip
-from regions import read_ds9
+import regions
 
 import pdb
 
@@ -656,26 +656,24 @@ def make_mask_image(hdu, mask_file):
     # make a 1s image
     mask_image = np.ones(hdu.data.shape)
 
-    # read in the ds9 file
-    regions = read_ds9(mask_file)
-    # get ra/dec/radius (all in degrees)
-    reg_ra = np.array( [regions[i].center.ra.deg for i in range(len(regions))] )
-    reg_dec = np.array( [regions[i].center.dec.deg for i in range(len(regions))] )
-    reg_rad_deg = np.array( [regions[i].radius.value for i in range(len(regions))] )/3600
-        
-    # convert to x/y
+    # WCS for the HDU
     im_wcs = wcs.WCS(hdu.header)
-    reg_x, reg_y = im_wcs.wcs_world2pix(reg_ra, reg_dec, 1)
-    reg_rad_pix = reg_rad_deg / wcs.utils.proj_plane_pixel_scales(im_wcs)[0]
 
-    # go through the regions and mask
-    height, width = mask_image.shape
-    y_grid, x_grid = np.ogrid[:height, :width]
+    # read in the ds9 file
+    region_list = regions.read_ds9(mask_file)
 
-    for i in range(len(reg_x)):
-        dist_from_center = np.sqrt((x_grid - reg_x[i])**2 + (y_grid-reg_y[i])**2)
-        mask = dist_from_center <= reg_rad_pix[i]
-        mask_image[mask] = 0
+
+    for i in range(len(region_list)):
+
+        # turn it into a pixel region (rather than sky region)
+        pix_reg = region_list[i].to_pixel(im_wcs)
+        # make a mask object (can only be done with pixel regions, unfortunately)
+        mask_obj = pix_reg.to_mask(mode='center')
+        # make a region image (1 corresponds to where the region is)
+        region_im = mask_obj.to_image(hdu.data.shape)
+        # mask that region
+        mask_image[region_im == 1] = 0
+
 
     # return final image
     return mask_image
