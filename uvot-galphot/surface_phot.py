@@ -715,7 +715,7 @@ def do_phot(annulus_list, counts_list, exp_list,
 
     # account for poisson errors from counts and any offset errors
     if offset_list is not None:
-        pois_err = np.sqrt(counts_list - offset_list)
+        pois_err = np.sqrt(np.abs(counts_list - offset_list))
         off_err = np.sqrt(np.abs(offset_list))
     else:
         pois_err = np.sqrt(np.abs(counts_list))
