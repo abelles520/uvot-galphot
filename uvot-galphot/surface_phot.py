@@ -87,13 +87,27 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         else:
             mask_image = None
 
+
+        # for some unknown reason (uvotimsum bug?), counts file could have NaNs
+        # -> mask them
+        if np.sum(~np.isfinite(hdu_counts[1].data)) > 0:
+            bad_pix = np.where(np.isfinite(hdu_counts[1].data) == 0)
+            # either add to existing mask
+            if mask_file is not None:
+                mask_image[bad_pix] = 0
+            # or make new mask
+            if mask_file is None:
+                mask_image = np.ones(hdu_counts[1].data.shape)
+                mask_image[bad_pix] = 0
+                mask_file = 'mask_from_nans'
+
+
         # if offset file is set, save it into an array
         if offset_file == True:
             with fits.open(label+'sk_off.fits') as hdu_off:
                 counts_off_array = hdu_off[1].data
 
-            # for some unknown reason (uvotimsum bug?), the offset file could have NaNs
-            # -> mask them
+            # mask any NaNs
             if np.sum(~np.isfinite(counts_off_array)) > 0:
                 bad_pix = np.where(np.isfinite(counts_off_array) == 0)
                 # either add to existing mask
@@ -103,7 +117,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                 if mask_file is None:
                     mask_image = np.ones(counts_off_array.shape)
                     mask_image[bad_pix] = 0
-                    mask_file = 'mask_from_offset_nans'
+                    mask_file = 'mask_from_nans'
         else:
             counts_off_array = None
 
