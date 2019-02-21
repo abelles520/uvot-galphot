@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 from photutils import SkyEllipticalAperture, SkyEllipticalAnnulus, aperture_photometry, EllipticalAnnulus, EllipticalAperture
 from astropy.io import fits
@@ -8,13 +9,14 @@ from astropy import wcs
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.stats import biweight_location, sigma_clip
-from regions import read_ds9
+import regions
 
 import pdb
 
 
 def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle,
                      ann_width, zeropoint, zeropoint_err=0.0,
+                     aperture_factor=1.0, sky_aperture_factor=1.0,
                      mask_file=None, offset_file=False,
                      verbose=False):
     """
@@ -46,6 +48,14 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
     zeropoint_err : float (default=0)
         uncertainty for the zeropoint
 
+    aperture_factor : float (default=1.0)
+        make the aperture larger by a factor of N (useful to quickly adjust
+        aperture if, e.g., you know R25 is too small for your UV galaxy)
+
+    sky_aperture_factor : float (default=1.0)
+        choose whether the sky aperture starts at the edge of the photometry
+        aperture (1.0) or some factor N larger
+
     mask_file : string (default=None)
         path+name of ds9 region file with masks
 
@@ -63,6 +73,12 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
     exp_im = label + 'ex.fits'
     offset_im = label + 'sk_off.fits'
 
+    # if files don't exist, return NaN
+    if (not os.path.isfile(counts_im)) or (not os.path.isfile(exp_im)):
+        print('surface_phot: image(s) not found')
+        return np.nan
+    
+
     with fits.open(counts_im) as hdu_counts, fits.open(exp_im) as hdu_ex:
 
         # if mask file is provided, make a mask image
@@ -71,13 +87,27 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         else:
             mask_image = None
 
+
+        # for some unknown reason (uvotimsum bug?), counts file could have NaNs
+        # -> mask them
+        if np.sum(~np.isfinite(hdu_counts[1].data)) > 0:
+            bad_pix = np.where(np.isfinite(hdu_counts[1].data) == 0)
+            # either add to existing mask
+            if mask_file is not None:
+                mask_image[bad_pix] = 0
+            # or make new mask
+            if mask_file is None:
+                mask_image = np.ones(hdu_counts[1].data.shape)
+                mask_image[bad_pix] = 0
+                mask_file = 'mask_from_nans'
+
+
         # if offset file is set, save it into an array
         if offset_file == True:
             with fits.open(label+'sk_off.fits') as hdu_off:
                 counts_off_array = hdu_off[1].data
 
-            # for some unknown reason (uvotimsum bug?), the offset file could have NaNs
-            # -> mask them
+            # mask any NaNs
             if np.sum(~np.isfinite(counts_off_array)) > 0:
                 bad_pix = np.where(np.isfinite(counts_off_array) == 0)
                 # either add to existing mask
@@ -87,7 +117,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                 if mask_file is None:
                     mask_image = np.ones(counts_off_array.shape)
                     mask_image[bad_pix] = 0
-                    mask_file = 'mask_from_offset_nans'
+                    mask_file = 'mask_from_nans'
         else:
             counts_off_array = None
 
@@ -101,7 +131,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         ellipse_center = wcs_counts.wcs_world2pix([[center_ra,center_dec]], 0)[0]
         
         # array of annuli over which to do photometry
-        annulus_array = np.arange(0, major_diam*1.2, ann_width)# * u.arcsec 
+        annulus_array = np.arange(0, major_diam*aperture_factor, ann_width)# * u.arcsec 
 
 
         
@@ -110,7 +140,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # -------------------------
 
         # size of sky annulus
-        sky_in = annulus_array[-1]
+        sky_in = annulus_array[-1] * sky_aperture_factor
         sky_ann_width = ann_width * 10
         sky_out = sky_in + sky_ann_width
 
@@ -626,26 +656,24 @@ def make_mask_image(hdu, mask_file):
     # make a 1s image
     mask_image = np.ones(hdu.data.shape)
 
-    # read in the ds9 file
-    regions = read_ds9(mask_file)
-    # get ra/dec/radius (all in degrees)
-    reg_ra = np.array( [regions[i].center.ra.deg for i in range(len(regions))] )
-    reg_dec = np.array( [regions[i].center.dec.deg for i in range(len(regions))] )
-    reg_rad_deg = np.array( [regions[i].radius.value for i in range(len(regions))] )/3600
-        
-    # convert to x/y
+    # WCS for the HDU
     im_wcs = wcs.WCS(hdu.header)
-    reg_x, reg_y = im_wcs.wcs_world2pix(reg_ra, reg_dec, 1)
-    reg_rad_pix = reg_rad_deg / wcs.utils.proj_plane_pixel_scales(im_wcs)[0]
 
-    # go through the regions and mask
-    height, width = mask_image.shape
-    y_grid, x_grid = np.ogrid[:height, :width]
+    # read in the ds9 file
+    region_list = regions.read_ds9(mask_file)
 
-    for i in range(len(reg_x)):
-        dist_from_center = np.sqrt((x_grid - reg_x[i])**2 + (y_grid-reg_y[i])**2)
-        mask = dist_from_center <= reg_rad_pix[i]
-        mask_image[mask] = 0
+
+    for i in range(len(region_list)):
+
+        # turn it into a pixel region (rather than sky region)
+        pix_reg = region_list[i].to_pixel(im_wcs)
+        # make a mask object (can only be done with pixel regions, unfortunately)
+        mask_obj = pix_reg.to_mask(mode='center')
+        # make a region image (1 corresponds to where the region is)
+        region_im = mask_obj.to_image(hdu.data.shape)
+        # mask that region
+        mask_image[region_im == 1] = 0
+
 
     # return final image
     return mask_image
