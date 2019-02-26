@@ -81,25 +81,19 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
     with fits.open(counts_im) as hdu_counts, fits.open(exp_im) as hdu_ex:
 
-        # if mask file is provided, make a mask image
+        # if mask region file is provided, make a mask image
         if mask_file is not None:
             mask_image = make_mask_image(hdu_counts[1], mask_file)
+        # otherwise mask is all 1s
         else:
-            mask_image = None
+            mask_image = np.ones(hdu_counts[1].data.shape)
 
-
+        # mask any areas where exposure time is 0
+        mask_image[np.where(hdu_ex[1].data < 1e-5)] = 0
+            
         # for some unknown reason (uvotimsum bug?), counts file could have NaNs
         # -> mask them
-        if np.sum(~np.isfinite(hdu_counts[1].data)) > 0:
-            bad_pix = np.where(np.isfinite(hdu_counts[1].data) == 0)
-            # either add to existing mask
-            if mask_file is not None:
-                mask_image[bad_pix] = 0
-            # or make new mask
-            if mask_file is None:
-                mask_image = np.ones(hdu_counts[1].data.shape)
-                mask_image[bad_pix] = 0
-                mask_file = 'mask_from_nans'
+        mask_image[np.where(np.isfinite(hdu_counts[1].data) == 0)] = 0
 
 
         # if offset file is set, save it into an array
@@ -108,16 +102,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                 counts_off_array = hdu_off[1].data
 
             # mask any NaNs
-            if np.sum(~np.isfinite(counts_off_array)) > 0:
-                bad_pix = np.where(np.isfinite(counts_off_array) == 0)
-                # either add to existing mask
-                if mask_file is not None:
-                    mask_image[bad_pix] = 0
-                # or make new mask
-                if mask_file is None:
-                    mask_image = np.ones(counts_off_array.shape)
-                    mask_image[bad_pix] = 0
-                    mask_file = 'mask_from_nans'
+            mask_image[np.where(np.isfinite(counts_off_array) == 0)] = 0
+
         else:
             counts_off_array = None
 
@@ -134,7 +120,6 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         annulus_array = np.arange(0, major_diam*aperture_factor, ann_width)# * u.arcsec 
 
 
-        
         # -------------------------
         # sky background and variation
         # -------------------------
@@ -192,9 +177,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             tot_arcsec2 = tot_pix * arcsec_per_pix**2
             phot_dict_ann['n_pix'][i] = tot_pix
             
-            # make masked version using input ds9 file
-            if mask_file is not None:
-                annulus_im = annulus_im * mask_image
+            # make masked version
+            annulus_im = annulus_im * mask_image
 
             # plot things
             #annulus_data = annulus_mask[0].multiply(hdu_counts[1].data)
@@ -221,11 +205,11 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             ann_phot_per_pix = ann_temp['count_rate_per_pix'] - sky_phot['count_rate_per_pix']
             ann_phot_per_pix_err = np.sqrt(ann_temp['count_rate_err_per_pix']**2 +
                                             sky_phot['count_rate_err_per_pix']**2 +
-                                            np.std(sky_seg_phot)**2 )
+                                            np.nanstd(sky_seg_phot)**2 )
             ann_phot_per_pix_pois_err = ann_temp['count_rate_pois_err_per_pix']
             ann_phot_per_pix_bg_err = np.sqrt(ann_temp['count_rate_off_err_per_pix']**2 +
                                                 sky_phot['count_rate_err_per_pix']**2 +
-                                                np.std(sky_seg_phot)**2 )
+                                                np.nanstd(sky_seg_phot)**2 )
 
             # multiply by the number of pixels in the annulus to get the total count rate
             ann_phot = ann_phot_per_pix * tot_pix
@@ -301,9 +285,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             tot_arcsec2 = tot_pix * arcsec_per_pix**2
             phot_dict_tot['n_pix'][i] = tot_pix
             
-            # make masked version using input ds9 file
-            if mask_file is not None:
-                annulus_im = annulus_im * mask_image
+            # make masked version
+            annulus_im = annulus_im * mask_image
 
             # plot things
             #annulus_data = annulus_mask[0].multiply(hdu_counts[1].data)
@@ -330,11 +313,11 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             tot_phot_per_pix = tot_temp['count_rate_per_pix'] - sky_phot['count_rate_per_pix']
             tot_phot_per_pix_err = np.sqrt(tot_temp['count_rate_err_per_pix']**2 +
                                             sky_phot['count_rate_err_per_pix']**2 +
-                                            np.std(sky_seg_phot)**2 )
+                                            np.nanstd(sky_seg_phot)**2 )
             tot_phot_per_pix_pois_err = tot_temp['count_rate_pois_err_per_pix']
             tot_phot_per_pix_bg_err = np.sqrt(tot_temp['count_rate_off_err_per_pix']**2 +
                                                 sky_phot['count_rate_err_per_pix']**2 +
-                                                np.std(sky_seg_phot)**2 )
+                                                np.nanstd(sky_seg_phot)**2 )
 
             # multiply by the number of pixels in the annulus to get the total count rate
             tot_phot = tot_phot_per_pix * tot_pix
@@ -715,7 +698,7 @@ def do_phot(annulus_list, counts_list, exp_list,
 
     # account for poisson errors from counts and any offset errors
     if offset_list is not None:
-        pois_err = np.sqrt(counts_list - offset_list)
+        pois_err = np.sqrt(np.abs(counts_list - offset_list))
         off_err = np.sqrt(np.abs(offset_list))
     else:
         pois_err = np.sqrt(np.abs(counts_list))
