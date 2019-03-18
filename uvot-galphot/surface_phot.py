@@ -438,7 +438,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 def calc_sky(hdu_counts, hdu_ex,
                  ellipse_center, major_diam, minor_diam, pos_angle,
                  sky_in, sky_out, mask_image=None, counts_off_array=None,
-                 n_seg_bg_var=8, sig_clip=2):
+                 n_seg_bg_var=8, sig_clip=2, min_pix=25):
     """
     Calculate the sky count rate per pixel and the large-scale variation
 
@@ -475,6 +475,10 @@ def calc_sky(hdu_counts, hdu_ex,
     sig_clip : float (default=2)
         apply a N iterations of sigma clipping to count rate values before
         calculating sky
+
+    min_pix : int (default=25)
+        minimum number of pixels in a segment that are necessary for sky
+        calculations to commence
 
 
     Returns
@@ -589,7 +593,7 @@ def calc_sky(hdu_counts, hdu_ex,
         #plt.colorbar()
         #pdb.set_trace()
 
-        if len(ind[0]) > 25:
+        if len(ind[0]) > min_pix:
             #print('** doing theta='+str(theta_start))
             # list of values within segment
             annulus_list = annulus_im[ind]
