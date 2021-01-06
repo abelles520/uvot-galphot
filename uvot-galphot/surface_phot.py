@@ -32,7 +32,8 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         coordinates of the center of the galaxy (degrees)
 
     major_diam, minor_diam : float
-        major and minor axes for the galaxy ellipse (arcsec)
+        SEMI major and SEMI minor axes for the galaxy ellipse (arcsec)
+        Note that this is different than the make_aperture_images code
 
     pos_angle : float
         position angle of the galaxy ellipse ("position angle increases
@@ -75,7 +76,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
     # if files don't exist, return NaN
     if (not os.path.isfile(counts_im)) or (not os.path.isfile(exp_im)):
-        print('surface_phot: image(s) not found')
+        print('surface_phot: image for {} not found'.format(label))
         return np.nan
     
 
@@ -126,6 +127,9 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         # size of sky annulus
         sky_in = annulus_array[-1] * sky_aperture_factor
+
+        # the width of the sky annulus is 10 times the width of the photometry annuli
+        # experiment with different values like 50
         sky_ann_width = ann_width * 10
         sky_out = sky_in + sky_ann_width
 
@@ -360,7 +364,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # (see Gil de Paz et al 2007, section 4.3)
         
         # - grab points with the last part of flux accumulation
-        use_ind = np.where(phot_dict_tot['count_rate'] >= 0.9 * np.max(phot_dict_tot['count_rate']))
+        use_ind = np.where(phot_dict_tot['count_rate'] >= 0.9 * np.nanmax(phot_dict_tot['count_rate']))
         use_rad = phot_dict_tot['radius'][use_ind]
         use_cr = phot_dict_tot['count_rate'][use_ind]
         use_cr_err = phot_dict_tot['count_rate_err'][use_ind]
@@ -383,6 +387,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         # - make plots
         if False:
+            plt.clf()
             fig = plt.figure(figsize=(6,5), num='flux gradient stuff')
             plt.errorbar(grad, use_cr[1:],
                          yerr=use_cr_err[1:],
@@ -395,9 +400,11 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             ax = plt.gca()
             ax.set_ylabel('Accumulated Flux (counts/sec)')
             ax.set_xlabel('Gradient of Accumulated Flux')
+            plt.title(label)
             plt.tight_layout()
-            pdb.set_trace()
+            plt.savefig(label+'derviative_plot.png', dpi=300)
         
+            plt.clf()
             fig = plt.figure(figsize=(6,5), num='flux stuff')
             plt.errorbar(use_rad/60, use_cr,
                          yerr=use_cr_err,
@@ -406,8 +413,9 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             ax = plt.gca()
             ax.set_ylabel('Accumulated Flux (counts/sec)')
             ax.set_xlabel('Radius (arcmin)')
+            plt.title(label)
             plt.tight_layout()
-            pdb.set_trace()
+            plt.savefig(label+'accumulated_flux.png', dpi=300)
 
 
 
@@ -724,7 +732,7 @@ def do_phot(annulus_list, counts_list, exp_list,
 
     # do sigma clipping, if chosen
     if sig_clip is not None:
-        pix_clip = sigma_clip(count_rate, sigma=3, iters=sig_clip)
+        pix_clip = sigma_clip(count_rate, sigma=3, iters=sig_clip, masked=True)
         count_rate = count_rate[~pix_clip.mask]
         count_rate_err = count_rate_err[~pix_clip.mask]
         count_rate_pois_err = count_rate_pois_err[~pix_clip.mask]
