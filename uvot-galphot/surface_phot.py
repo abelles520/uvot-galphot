@@ -128,9 +128,9 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         # size of sky annulus
         sky_in = annulus_array[-1] * sky_aperture_factor
 
-        # the width of the sky annulus is 10 times the width of the photometry annuli
-        # experiment with different values like 50
-        sky_ann_width = ann_width * 10
+        # the width of the sky annulus is 50 times the width of the photometry annuli
+        # experiment with different values
+        sky_ann_width = ann_width * 50
         sky_out = sky_in + sky_ann_width
 
         sky_phot, sky_seg_phot, sky_seg_phot_err = calc_sky(hdu_counts[1], hdu_ex[1],
