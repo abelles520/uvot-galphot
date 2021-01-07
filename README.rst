@@ -34,9 +34,7 @@ An example of the workflow can be seen in the gal_phot_pipeline.py file. The bas
 
 #.  Step 1: surface_phot.py
 
-    *  Main function here is surface_phot, which does the photometry calculation. The photometry is calculated  
-    in two ways, total/aperture photometry and asymptotic, where the surface brightness profile is extrapolated  
-    to a aperture which no longer accumulates galaxy flux. 
+    *  Main function here is surface_phot, which does the photometry calculation. The photometry is calculated in two ways, total/aperture photometry and asymptotic, where the surface brightness profile is extrapolated to a aperture which no longer accumulates galaxy flux. 
    
     *  Arguments:
    
@@ -52,9 +50,7 @@ An example of the workflow can be seen in the gal_phot_pipeline.py file. The bas
 
 #.  Step 3 (optional): make_aperture_image.py
 
-    *  This step is optional. In order to visualize the aperture and sky annulus used in the photometry, this  
-    code will plot the sky aperture in red and the outer edge of the sky annulus in blue. By default, the sky  
-    annulus starts at the end of the galaxy's aperture. The relevant function in this file is make_aperture_image.  
+    *  This step is optional. In order to visualize the aperture and sky annulus used in the photometry, this code will plot the sky aperture in red and the outer edge of the sky annulus in blue. By default, the sky annulus starts at the end of the galaxy's aperture. The relevant function in this file is make_aperture_image.  
    
     *  An important note: this code takes the major and minor axes as arguments. This is different compared to  
     the functions in surface_phot.py.
