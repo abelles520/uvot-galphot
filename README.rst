@@ -26,37 +26,37 @@ galaxy images: surface_phot.py, phot_plot.py, make_aperture_image.py.
 
 An example of the workflow can be seen in the gal_phot_pipeline.py file. The basic workflow is as follows:
 
-#. Step 0: Process raw UVOT data
+#.  Step 0: Process raw UVOT data
 
-    * This is done using the uvot-mosiac repository.
+    *  This is done using the uvot-mosiac repository. 
 
-    * The summed and stacked images and exposure maps are needed to run the photometry code. 
+    *  The summed and stacked images and exposure maps are needed to run the photometry code. 
 
-#. Step 1: surface_phot.py
+#.  Step 1: surface_phot.py
 
-    * Main function here is surface_phot, which does the photometry calculation. The photometry is calculated 
-    in two ways, total/aperture photometry and asymptotic, where the surface brightness profile is extrapolated
+    *  Main function here is surface_phot, which does the photometry calculation. The photometry is calculated  
+    in two ways, total/aperture photometry and asymptotic, where the surface brightness profile is extrapolated  
     to a aperture which no longer accumulates galaxy flux. 
+   
+    *  Arguments:
+   
+    *  Returns: 
 
-    * Arguments:
+#.  Step 2: phot_plot.py
 
-    * Returns: 
+    *  This function plots the surface brightness profiles from surface_phot. 
+   
+    *  Arguments:
+   
+    *  Returns: 
 
-#. Step 2: phot_plot.py
+#.  Step 3 (optional): make_aperture_image.py
 
-    * This function plots the surface brightness profiles from surface_phot. 
-
-    * Arguments:
-
-    * Returns: 
-
-#. Step 3 (optional): make_aperture_image.py
-
-    * This step is optional. In order to visualize the aperture and sky annulus used in the photometry, this
-    code will plot the sky aperture in red and the outer edge of the sky annulus in blue. By default, the sky
-    annulus starts at the end of the galaxy's aperture. The relevant function in this file is make_aperture_image.
-
-    * An important note: this code takes the major and minor axes as arguments. This is different compared to 
+    *  This step is optional. In order to visualize the aperture and sky annulus used in the photometry, this  
+    code will plot the sky aperture in red and the outer edge of the sky annulus in blue. By default, the sky  
+    annulus starts at the end of the galaxy's aperture. The relevant function in this file is make_aperture_image.  
+   
+    *  An important note: this code takes the major and minor axes as arguments. This is different compared to  
     the functions in surface_phot.py.
 
 
