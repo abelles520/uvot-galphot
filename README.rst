@@ -36,9 +36,13 @@ An example of the workflow can be seen in the gal_phot_pipeline.py file. The bas
 
     *  Main function here is surface_phot, which does the photometry calculation. The photometry is calculated in two ways, total/aperture photometry and asymptotic, where the surface brightness profile is extrapolated to a aperture which no longer accumulates galaxy flux. 
    
-    *  Arguments:
+    *  Arguments: label, center_ra, center_dec, major_diam, minor_diam, pos_angle, ann_width, zeropoint, zeropoint_err=0.0, aperture_factor=1.0, sky_aperture_factor=1.0, mask_file=None, offset_file=False, verbose=False
    
-    *  Returns: 
+    *  label is a string with the naming convention for your processed data files, the galaxy position arguments are fairly straightforward but note that the surface_phot function takes the SEMI major/minor axes, the ann_width is the width of the annuli used, zeropoint and err are self-explanatory, aperture factors are a multiplicative factor that can resize the aperture parameters passes (this is useful for diagnosing problematic photometry), the mask_file is the name of the DS9 region file masking foreground stars, offset_file is the name of the offset file if the offset correction is applied, and verbose is a boolean can toggle extra information printed to the terminal
+
+    *  A more complete explanation of arguments can be found in the docstrings.  
+
+    *  Returns: The main output of this function are a text files ending with ''
 
 #.  Step 2: phot_plot.py
 
