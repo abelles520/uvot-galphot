@@ -48,16 +48,17 @@ An example of the workflow can be seen in the gal_phot_pipeline.py file. The bas
 
     *  This function plots the surface brightness profiles from surface_phot. 
    
-    *  Arguments:
+    *  Arguments: annphot_file_list, totphot_file_list, label_list, plot_filename, color_list=None, asym_mag_list=None.
+    
+    *  annphot_file_list is the list of annular photometry files from surface_phot, totphot_file_list is the list of total photometry files from surface_phot, label_list is a list for labeling the files (e.g. by filter name), plot_filename is a str naming the output file, color_list is an optional argument that sets the color of the lines in the plot, asym_mag_list is an optional argument that is a list of the asymptotic magnitude file names. 
    
-    *  Returns: 
+    *  Returns: The main output of this function are plots that show the surface brightness profiles of the galaxy photometry in each filter. 
 
 #.  Step 3 (optional): make_aperture_image.py
 
     *  This step is optional. In order to visualize the aperture and sky annulus used in the photometry, this code will plot the sky aperture in red and the outer edge of the sky annulus in blue. By default, the sky annulus starts at the end of the galaxy's aperture. The relevant function in this file is make_aperture_image.  
    
-    *  An important note: this code takes the major and minor axes as arguments. This is different compared to  
-    the functions in surface_phot.py.
+    *  An important note: this code takes the major and minor axes as arguments. This is different compared to the functions in surface_phot.py.
 
 
 Contributing
