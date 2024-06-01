@@ -9,8 +9,7 @@ from reproject import reproject_interp
 import pdb
 
 def make_aperture_image(label, filter_list,
-                            center_ra, center_dec, major_diam, minor_diam
-                            ann_width, pos_angle):
+                            center_ra, center_dec, major_diam, minor_diam, pos_angle):
     """
     Make a picture of the galaxy with the apertures overlaid
 
@@ -31,11 +30,6 @@ def make_aperture_image(label, filter_list,
 
     major_diam, minor_diam : float
         major and minor axes for the galaxy ellipse (arcsec)
-        Note: true major and minor axes compared to surface_phot
-
-    ann_width: float
-        width of annuli in arcsec. The sky annulus is set as 50 times the ann_width
-        by default in surface_phot. This can be adjusted on line 98
 
     pos_angle : float
         position angle of the galaxy ellipse ("position angle increases
@@ -63,7 +57,7 @@ def make_aperture_image(label, filter_list,
 
         # subtract mode
         # - do a sigma clip
-        pix_clip = sigma_clip(hdu_list[f].data, sigma=2.5, iters=3)
+        pix_clip = sigma_clip(hdu_list[f].data, sigma=2.5, maxiters=3)
         # - calculate biweight
         biweight_clip = biweight_location(pix_clip.data[~pix_clip.mask])
         # - subtraction
@@ -95,21 +89,11 @@ def make_aperture_image(label, filter_list,
     fig.tick_labels.hide_y()
     fig.frame.set_linewidth(0)
 
-    factor = 50
-    maj_sky = factor*ann_width+major_diam
-    min_sky = factor*ann_width+minor_diam
-
     # aperture ellipses
     fig.show_ellipses(center_ra, center_dec,
                           major_diam/3600, minor_diam/3600,
                           angle=90+pos_angle,
-                          edgecolor='red', linewidth=2,label='gal_aperture')
-
-    fig.show_ellipses(center_ra, center_dec,
-                          maj_sky/3600, min_sky/3600,
-                          angle=90+pos_angle,
-                          edgecolor='blue', linewidth=2, label='sky_aperture')
-    
+                          edgecolor='red', linewidth=2)
 
     fig.save(label+'aperture_image.pdf')
 

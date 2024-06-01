@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import sys
 
 from photutils import SkyEllipticalAperture, SkyEllipticalAnnulus, aperture_photometry, EllipticalAnnulus, EllipticalAperture
 from astropy.io import fits
@@ -12,6 +13,8 @@ from astropy.stats import biweight_location, sigma_clip
 import regions
 
 import pdb
+
+from regions.shapes import annulus
 
 
 def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle,
@@ -77,8 +80,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
     # if files don't exist, return NaN
     if (not os.path.isfile(counts_im)) or (not os.path.isfile(exp_im)):
         print('surface_phot: image for {} not found'.format(label))
-        return np.nan
-    
+        return np.nan    
 
     with fits.open(counts_im) as hdu_counts, fits.open(exp_im) as hdu_ex:
 
@@ -99,7 +101,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         # if offset file is set, save it into an array
         if offset_file == True:
-            with fits.open(label+'sk_off.fits') as hdu_off:
+            with fits.open(offset_im) as hdu_off:
                 counts_off_array = hdu_off[1].data
 
             # mask any NaNs
@@ -118,7 +120,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
         ellipse_center = wcs_counts.wcs_world2pix([[center_ra,center_dec]], 0)[0]
         
         # array of annuli over which to do photometry
-        annulus_array = np.arange(0, major_diam*aperture_factor, ann_width)# * u.arcsec 
+        annulus_array = np.arange(0, major_diam*aperture_factor+ann_width, ann_width)# * u.arcsec 
 
 
         # -------------------------
@@ -130,16 +132,25 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
         # the width of the sky annulus is 50 times the width of the photometry annuli
         # experiment with different values
-        sky_ann_width = ann_width * 50
+        # increase it to 100 (?)
+        # mess around with this number
+        sky_ann_width = ann_width * 100
         sky_out = sky_in + sky_ann_width
 
+        '''
         sky_phot, sky_seg_phot, sky_seg_phot_err = calc_sky(hdu_counts[1], hdu_ex[1],
                                                                 ellipse_center, major_diam, minor_diam, pos_angle,
                                                                 sky_in, sky_out,
                                                                 mask_image=mask_image,
                                                                 counts_off_array=counts_off_array)
         
+        
+        print(list(sky_phot.keys()))
+        print(sky_phot.values())
+        '''
 
+        sky_phot, sky_seg_phot, sky_seg_phot_err = calc_sky_clip(hdu_counts[1], hdu_ex[1])      
+        
         # -------------------------
         # photometry for each annulus
         # -------------------------
@@ -155,23 +166,36 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                       '%9f','%9f',
                       '%9f','%9f','%9f']
         phot_dict_ann = {key:np.zeros(len(annulus_array)-1) for key in cols_ann}
+        
+        
 
         for i in range(len(annulus_array)-1):
         #for i in range(0,5):
+
+            if annulus_array[i]==0:
+                tmp = 0.01
+            else:
+                tmp = annulus_array[i]
 
             # save radius
             phot_dict_ann['radius'][i] = annulus_array[i+1]
 
             # define aperture object
-            aperture = EllipticalAnnulus(tuple(ellipse_center),
-                                             a_in=annulus_array[i]/arcsec_per_pix,
+            try:
+                aperture = EllipticalAnnulus(tuple(ellipse_center),
+                                             a_in=tmp/arcsec_per_pix,
                                              a_out=annulus_array[i+1]/arcsec_per_pix,
                                              b_out=annulus_array[i+1]/arcsec_per_pix * minor_diam/major_diam,
                                              theta=(90+pos_angle)*np.pi/180)
+            except Exception as e:
+                print(e)
+                print('a_in=', annulus_array[i]/arcsec_per_pix)
+                sys.exit(1)
+
             # make an ApertureMask object with the aperture
             annulus_mask = aperture.to_mask(method='exact')
             # turn aperture into an image
-            annulus_im = annulus_mask[0].to_image(hdu_counts[1].data.shape)
+            annulus_im = annulus_mask.to_image(hdu_counts[1].data.shape)
 
             # get total number of pixels (using ellipse areas, in case some of the aperture is off the image)
             #tot_pix = np.sum(annulus_im)
@@ -207,6 +231,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
             # subtract background
             ann_phot_per_pix = ann_temp['count_rate_per_pix'] - sky_phot['count_rate_per_pix']
+
             ann_phot_per_pix_err = np.sqrt(ann_temp['count_rate_err_per_pix']**2 +
                                             sky_phot['count_rate_err_per_pix']**2 +
                                             np.nanstd(sky_seg_phot)**2 )
@@ -281,7 +306,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
             # make an ApertureMask object with the aperture
             annulus_mask = aperture.to_mask(method='exact')
             # turn aperture into an image
-            annulus_im = annulus_mask[0].to_image(hdu_counts[1].data.shape)
+            annulus_im = annulus_mask.to_image(hdu_counts[1].data.shape)
             
             # get total number of pixels (using ellipse areas, in case some of the aperture is off the image)
             #tot_pix = np.sum(annulus_im)
@@ -386,7 +411,7 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
 
 
         # - make plots
-        if False:
+        if True:
             plt.clf()
             fig = plt.figure(figsize=(6,5), num='flux gradient stuff')
             plt.errorbar(grad, use_cr[1:],
@@ -441,6 +466,16 @@ def surface_phot(label, center_ra, center_dec, major_diam, minor_diam, pos_angle
                     'tot_mag':tot_mag, 'tot_mag_err':tot_mag_err}
 
 
+def calc_sky_clip(hdu_counts, hdu_ex):
+    cr = hdu_counts.data/hdu_ex.data
+    clipped_data = sigma_clip(cr, sigma=2)
+    ctr = np.ma.median(clipped_data)
+    ctr_err = np.ma.std(clipped_data)
+    sky_phot = {'count_rate_per_pix': ctr, 'count_rate_err_per_pix':ctr_err}
+    # below length 8
+    sky_seg_phot = np.zeros(8)
+    sky_seg_phot_err = np.zeros(8)
+    return sky_phot, sky_seg_phot, sky_seg_phot_err
 
 
 def calc_sky(hdu_counts, hdu_ex,
@@ -453,10 +488,10 @@ def calc_sky(hdu_counts, hdu_ex,
     Parameters
     ----------
     hdu_counts : astropy hdu object
-        An HDU with the counts image image
+        An HDU with the counts image
 
-    hdu_counts : astropy hdu object
-        An HDU with the counts image image
+    hdu_ex : astropy hdu object
+        An HDU with the exposure map
 
     ellipse_center : list of two floats
         RA and Dec (degrees) of the ellipse center
@@ -521,7 +556,7 @@ def calc_sky(hdu_counts, hdu_ex,
     # make an ApertureMask object with the aperture
     annulus_mask = aperture.to_mask(method='exact')
     # turn aperture into an image
-    annulus_im = annulus_mask[0].to_image(hdu_counts.data.shape)
+    annulus_im = annulus_mask.to_image(hdu_counts.data.shape)
 
     # make masked version using input ds9 file
     if mask_image is not None:
@@ -623,6 +658,7 @@ def calc_sky(hdu_counts, hdu_ex,
 
 
     # return useful quantities
+    print(sky_phot, sky_seg_phot, sky_seg_phot_err)
     return sky_phot, sky_seg_phot, sky_seg_phot_err
 
         
@@ -732,7 +768,7 @@ def do_phot(annulus_list, counts_list, exp_list,
 
     # do sigma clipping, if chosen
     if sig_clip is not None:
-        pix_clip = sigma_clip(count_rate, sigma=3, iters=sig_clip, masked=True)
+        pix_clip = sigma_clip(count_rate, sigma=3, maxiters=sig_clip, masked=True)
         count_rate = count_rate[~pix_clip.mask]
         count_rate_err = count_rate_err[~pix_clip.mask]
         count_rate_pois_err = count_rate_pois_err[~pix_clip.mask]
@@ -787,3 +823,4 @@ def boot_lin_fit(x_in, y_in, y_err_in, n_boot=500):
 
 
     return best_fit
+
